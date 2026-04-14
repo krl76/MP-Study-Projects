@@ -422,12 +422,16 @@ GameObject:
   - component: {fileID: 4217208373202459325}
   - component: {fileID: 2229268564334984161}
   - component: {fileID: 4101862671631779596}
+  - component: {fileID: 4921938217710012348}
   - component: {fileID: 7286001886377301485}
   - component: {fileID: 259834622522379566}
   - component: {fileID: 7708764257978998704}
   - component: {fileID: 3287915705810198349}
   - component: {fileID: 2501423610660086076}
   - component: {fileID: 8611076854459174284}
+  - component: {fileID: 4921938217710012345}
+  - component: {fileID: 4921938217710012346}
+  - component: {fileID: 4921938217710012347}
   m_Layer: 0
   m_Name: Player
   m_TagString: Untagged
@@ -476,12 +480,37 @@ CapsuleCollider:
   m_LayerOverridePriority: 0
   m_IsTrigger: 0
   m_ProvidesContacts: 0
-  m_Enabled: 1
+  m_Enabled: 0
   serializedVersion: 2
   m_Radius: 0.5
   m_Height: 2
   m_Direction: 1
   m_Center: {x: 0, y: 0, z: 0}
+--- !u!143 &4921938217710012348
+CharacterController:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 6922406074167932387}
+  m_Material: {fileID: 0}
+  m_IncludeLayers:
+    serializedVersion: 2
+    m_Bits: 0
+  m_ExcludeLayers:
+    serializedVersion: 2
+    m_Bits: 0
+  m_LayerOverridePriority: 0
+  m_ProvidesContacts: 0
+  m_Enabled: 1
+  serializedVersion: 3
+  m_Height: 2
+  m_Radius: 0.45
+  m_SlopeLimit: 45
+  m_StepOffset: 0.3
+  m_SkinWidth: 0.08
+  m_MinMoveDistance: 0
+  m_Center: {x: 0, y: 1, z: 0}
 --- !u!23 &7286001886377301485
 MeshRenderer:
   m_ObjectHideFlags: 0
@@ -580,7 +609,7 @@ MonoBehaviour:
   RotationMaxInterpolationTime: 0.1
   ScaleLerpSmoothing: 1
   ScaleMaxInterpolationTime: 0.1
-  AuthorityMode: 0
+  AuthorityMode: 1
   TickSyncChildren: 0
   UseUnreliableDeltas: 0
   SyncPositionX: 1
@@ -616,8 +645,9 @@ MonoBehaviour:
   m_EditorClassIdentifier: Assembly-CSharp::PlayerNetwork
   ShowTopMostFoldoutHeaderGroup: 1
   _maxHp: 100
-  _spawnHeight: 1
-  _spawnSpacing: 4
+  _respawnDelay: 3
+  _fallbackSpawnHeight: 1
+  _fallbackSpawnSpacing: 4
   Nickname:
     m_InternalValue:
       utf8LengthInBytes: 0
@@ -655,6 +685,10 @@ MonoBehaviour:
         byte0029: 0
   HP:
     m_InternalValue: 100
+  IsAlive:
+    m_InternalValue: 1
+  Ammo:
+    m_InternalValue: 0
 --- !u!114 &2501423610660086076
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -686,3 +720,47 @@ MonoBehaviour:
   _playerNetwork: {fileID: 3287915705810198349}
   _nicknameText: {fileID: 4947858239335661010}
   _hpText: {fileID: 194718314943764824}
+--- !u!114 &4921938217710012345
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 6922406074167932387}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 6f1c4fadb1f24ce1a8f067f5d191c1a1, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::PlayerMovement
+  _speed: 5
+  _gravity: -18
+--- !u!114 &4921938217710012346
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 6922406074167932387}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 5b0e45fef4a3472e90b2d0f8d6276f24, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::PlayerCamera
+  _offset: {x: 0, y: 8, z: -6}
+  _lookOffset: {x: 0, y: 1.1, z: 0}
+--- !u!114 &4921938217710012347
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 6922406074167932387}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 3a8f17ff8c884d4bb0421ac17d5ddc6d, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::PlayerShooting
+  _projectilePrefab: {fileID: 5401182207811459001, guid: 2ee9a564e6da43b0ad3c8bf20f6d1f71, type: 3}
+  _cooldown: 0.4
+  _maxAmmo: 10
+  _firePointOffset: {x: 0, y: 0.85, z: 0.75}

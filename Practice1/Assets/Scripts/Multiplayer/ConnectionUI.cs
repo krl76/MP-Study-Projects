@@ -21,11 +21,14 @@ public class ConnectionUI : MonoBehaviour
 
     private NetworkManager _networkManager;
     private bool _callbacksRegistered;
+    private PlayerNetwork _localPlayer;
+    private float _respawnCountdownEndsAt;
 
     private void Awake()
     {
         BindButtons();
         CacheNetworkManager();
+        EnsureRequiredNetworkPrefabs();
         UpdatePanels(false);
         SetStatus(string.Empty);
     }
@@ -41,13 +44,27 @@ public class ConnectionUI : MonoBehaviour
         RefreshSessionState();
     }
 
+    private void Update()
+    {
+        CacheNetworkManager();
+        if (_networkManager == null || !_networkManager.IsListening)
+        {
+            return;
+        }
+
+        TryBindLocalPlayer();
+        RefreshSessionHud();
+    }
+
     private void OnDisable()
     {
+        UnbindLocalPlayer();
         UnregisterCallbacks();
     }
 
     private void OnDestroy()
     {
+        UnbindLocalPlayer();
         UnregisterCallbacks();
     }
 
@@ -89,29 +106,6 @@ public class ConnectionUI : MonoBehaviour
         }
     }
 
-    public void AttackNearest()
-    {
-        CacheNetworkManager();
-        if (_networkManager == null || !_networkManager.IsListening)
-        {
-            SetStatus("\u0421\u043d\u0430\u0447\u0430\u043b\u0430 \u0437\u0430\u043f\u0443\u0441\u0442\u0438\u0442\u0435 \u0441\u0435\u0442\u0435\u0432\u0443\u044e \u0441\u0435\u0441\u0441\u0438\u044e.");
-            return;
-        }
-
-        NetworkObject localPlayerObject = _networkManager.SpawnManager?.GetLocalPlayerObject();
-        if (localPlayerObject == null)
-        {
-            SetStatus("\u041b\u043e\u043a\u0430\u043b\u044c\u043d\u044b\u0439 \u0438\u0433\u0440\u043e\u043a \u0435\u0449\u0435 \u043d\u0435 \u0437\u0430\u0441\u043f\u0430\u0432\u043d\u0435\u043d.");
-            return;
-        }
-
-        PlayerCombat combat = localPlayerObject.GetComponent<PlayerCombat>();
-        if (combat == null || !combat.TryAttackNearest())
-        {
-            SetStatus("\u0410\u0442\u0430\u043a\u0430 \u0441\u0435\u0439\u0447\u0430\u0441 \u043d\u0435\u0434\u043e\u0441\u0442\u0443\u043f\u043d\u0430.");
-        }
-    }
-
     private bool PrepareStart()
     {
         SaveNickname();
@@ -128,6 +122,8 @@ public class ConnectionUI : MonoBehaviour
             SetStatus("\u0421\u0435\u0442\u0435\u0432\u0430\u044f \u0441\u0435\u0441\u0441\u0438\u044f \u0443\u0436\u0435 \u0437\u0430\u043f\u0443\u0449\u0435\u043d\u0430.");
             return false;
         }
+
+        EnsureRequiredNetworkPrefabs();
 
         return true;
     }
@@ -165,8 +161,9 @@ public class ConnectionUI : MonoBehaviour
 
         if (_attackButton != null)
         {
-            _attackButton.onClick.RemoveListener(AttackNearest);
-            _attackButton.onClick.AddListener(AttackNearest);
+            _attackButton.onClick.RemoveAllListeners();
+            _attackButton.interactable = false;
+            _attackButton.gameObject.SetActive(false);
         }
     }
 
@@ -213,6 +210,7 @@ public class ConnectionUI : MonoBehaviour
         if (clientId == _networkManager.LocalClientId)
         {
             UpdatePanels(true);
+            TryBindLocalPlayer();
             string mode = _networkManager.IsHost
                 ? "\u0425\u043e\u0441\u0442"
                 : "\u041a\u043b\u0438\u0435\u043d\u0442";
@@ -233,6 +231,7 @@ public class ConnectionUI : MonoBehaviour
 
         if (clientId == _networkManager.LocalClientId && !_networkManager.IsHost)
         {
+            UnbindLocalPlayer();
             UpdatePanels(false);
             SetStatus("\u0421\u043e\u0435\u0434\u0438\u043d\u0435\u043d\u0438\u0435 \u0441 \u0445\u043e\u0441\u0442\u043e\u043c \u0440\u0430\u0437\u043e\u0440\u0432\u0430\u043d\u043e.");
             return;
@@ -249,6 +248,7 @@ public class ConnectionUI : MonoBehaviour
             return;
         }
 
+        UnbindLocalPlayer();
         UpdatePanels(false);
         SetStatus(string.IsNullOrWhiteSpace(_networkManager.DisconnectReason)
             ? "\u0421\u0435\u0441\u0441\u0438\u044f \u043e\u0441\u0442\u0430\u043d\u043e\u0432\u043b\u0435\u043d\u0430."
@@ -266,10 +266,8 @@ public class ConnectionUI : MonoBehaviour
             return;
         }
 
-        string mode = _networkManager.IsHost
-            ? "\u0425\u043e\u0441\u0442"
-            : (_networkManager.IsServer ? "\u0421\u0435\u0440\u0432\u0435\u0440" : "\u041a\u043b\u0438\u0435\u043d\u0442");
-        SetStatus($"{mode} \u0430\u043a\u0442\u0438\u0432\u0435\u043d \u043d\u0430 {_address}:{_port}.");
+        TryBindLocalPlayer();
+        RefreshSessionHud();
     }
 
     private void UpdatePanels(bool sessionActive)
@@ -289,14 +287,9 @@ public class ConnectionUI : MonoBehaviour
             _sessionPanel.SetActive(sessionActive);
         }
 
-        if (_statusText != null && sessionActive)
-        {
-            _statusText.gameObject.SetActive(false);
-        }
-
         if (_attackButton != null)
         {
-            _attackButton.interactable = sessionActive;
+            _attackButton.gameObject.SetActive(false);
         }
     }
 
@@ -307,13 +300,163 @@ public class ConnectionUI : MonoBehaviour
             : FindFirstObjectByType<NetworkManager>();
     }
 
+    private void EnsureRequiredNetworkPrefabs()
+    {
+        if (_networkManager == null)
+        {
+            return;
+        }
+
+        RegisterNetworkPrefab(_networkManager.NetworkConfig.PlayerPrefab);
+
+        GameObject playerPrefab = _networkManager.NetworkConfig.PlayerPrefab;
+        if (playerPrefab != null)
+        {
+            PlayerShooting shooting = playerPrefab.GetComponent<PlayerShooting>();
+            RegisterNetworkPrefab(shooting != null ? shooting.ProjectilePrefab : null);
+        }
+
+        PickupManager pickupManager = FindFirstObjectByType<PickupManager>();
+        if (pickupManager != null)
+        {
+            RegisterNetworkPrefab(pickupManager.HealthPickupPrefab);
+        }
+    }
+
+    private void RegisterNetworkPrefab(GameObject prefab)
+    {
+        if (_networkManager == null || prefab == null)
+        {
+            return;
+        }
+
+        NetworkPrefabs prefabs = _networkManager.NetworkConfig.Prefabs;
+        if (prefabs.Contains(prefab) || IsPrefabInConfiguredLists(prefab, prefabs))
+        {
+            return;
+        }
+
+        prefabs.Add(new NetworkPrefab
+        {
+            Prefab = prefab
+        });
+    }
+
+    private static bool IsPrefabInConfiguredLists(GameObject prefab, NetworkPrefabs prefabs)
+    {
+        for (int i = 0; i < prefabs.NetworkPrefabsLists.Count; i++)
+        {
+            NetworkPrefabsList list = prefabs.NetworkPrefabsLists[i];
+            if (list != null && list.Contains(prefab))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
     private void SetStatus(string message)
     {
         if (_statusText != null)
         {
             _statusText.text = message;
-            bool shouldShow = !string.IsNullOrWhiteSpace(message) && (_networkManager == null || !_networkManager.IsListening);
-            _statusText.gameObject.SetActive(shouldShow);
+            _statusText.gameObject.SetActive(!string.IsNullOrWhiteSpace(message));
         }
+    }
+
+    private void TryBindLocalPlayer()
+    {
+        if (_networkManager == null || !_networkManager.IsListening)
+        {
+            UnbindLocalPlayer();
+            return;
+        }
+
+        NetworkObject localPlayerObject = _networkManager.SpawnManager?.GetLocalPlayerObject();
+        PlayerNetwork nextPlayer = localPlayerObject != null
+            ? localPlayerObject.GetComponent<PlayerNetwork>()
+            : null;
+
+        if (nextPlayer == _localPlayer)
+        {
+            return;
+        }
+
+        UnbindLocalPlayer();
+        _localPlayer = nextPlayer;
+
+        if (_localPlayer == null)
+        {
+            return;
+        }
+
+        _localPlayer.HP.OnValueChanged += OnLocalStatsChanged;
+        _localPlayer.Ammo.OnValueChanged += OnLocalStatsChanged;
+        _localPlayer.IsAlive.OnValueChanged += OnLocalAliveChanged;
+
+        if (!_localPlayer.IsAlive.Value)
+        {
+            _respawnCountdownEndsAt = Time.unscaledTime + _localPlayer.RespawnDelay;
+        }
+    }
+
+    private void UnbindLocalPlayer()
+    {
+        if (_localPlayer == null)
+        {
+            return;
+        }
+
+        _localPlayer.HP.OnValueChanged -= OnLocalStatsChanged;
+        _localPlayer.Ammo.OnValueChanged -= OnLocalStatsChanged;
+        _localPlayer.IsAlive.OnValueChanged -= OnLocalAliveChanged;
+        _localPlayer = null;
+        _respawnCountdownEndsAt = 0f;
+    }
+
+    private void OnLocalStatsChanged(int _, int __)
+    {
+        RefreshSessionHud();
+    }
+
+    private void OnLocalAliveChanged(bool _, bool isAlive)
+    {
+        _respawnCountdownEndsAt = isAlive
+            ? 0f
+            : Time.unscaledTime + (_localPlayer != null ? _localPlayer.RespawnDelay : 0f);
+        RefreshSessionHud();
+    }
+
+    private void RefreshSessionHud()
+    {
+        if (_networkManager == null || !_networkManager.IsListening)
+        {
+            return;
+        }
+
+        if (_localPlayer == null)
+        {
+            SetStatus("\u0421\u0435\u0441\u0441\u0438\u044f \u0430\u043a\u0442\u0438\u0432\u043d\u0430. \u041e\u0436\u0438\u0434\u0430\u043d\u0438\u0435 \u0441\u043f\u0430\u0432\u043d\u0430 \u043b\u043e\u043a\u0430\u043b\u044c\u043d\u043e\u0433\u043e \u0438\u0433\u0440\u043e\u043a\u0430...");
+            return;
+        }
+
+        string mode = _networkManager.IsHost
+            ? "\u0425\u043e\u0441\u0442"
+            : (_networkManager.IsServer ? "\u0421\u0435\u0440\u0432\u0435\u0440" : "\u041a\u043b\u0438\u0435\u043d\u0442");
+
+        string respawnText = string.Empty;
+        if (!_localPlayer.IsAlive.Value)
+        {
+            float secondsRemaining = Mathf.Max(0f, _respawnCountdownEndsAt - Time.unscaledTime);
+            respawnText = $"\n\u0412\u043e\u0437\u0440\u043e\u0436\u0434\u0435\u043d\u0438\u0435 \u0447\u0435\u0440\u0435\u0437 {secondsRemaining:0.0} \u0441\u0435\u043a.";
+        }
+
+        SetStatus(
+            $"{mode} \u0430\u043a\u0442\u0438\u0432\u0435\u043d \u043d\u0430 {_address}:{_port}\n" +
+            $"HP: {_localPlayer.HP.Value}/{_localPlayer.MaxHp} | \u041f\u0430\u0442\u0440\u043e\u043d\u044b: {_localPlayer.Ammo.Value}\n" +
+            "WASD - \u0434\u0432\u0438\u0436\u0435\u043d\u0438\u0435, Space - \u0432\u044b\u0441\u0442\u0440\u0435\u043b" +
+            respawnText
+        );
     }
 }
