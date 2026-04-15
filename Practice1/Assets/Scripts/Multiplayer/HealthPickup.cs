@@ -2,7 +2,7 @@ using Unity.Netcode;
 using UnityEngine;
 
 [RequireComponent(typeof(NetworkObject))]
-[RequireComponent(typeof(SphereCollider))]
+[RequireComponent(typeof(BoxCollider))]
 public class HealthPickup : NetworkBehaviour
 {
     [SerializeField] private int _healAmount = 40;
@@ -29,6 +29,14 @@ public class HealthPickup : NetworkBehaviour
         UpdateRootRendererVisibility();
     }
 
+    private void OnValidate()
+    {
+        _sphereCollider = GetComponent<SphereCollider>();
+        _rootRenderer = GetComponent<MeshRenderer>();
+        ApplyColliderSettings();
+        UpdateRootRendererVisibility();
+    }
+
     public override void OnNetworkSpawn()
     {
         EnsureVisualInstance();
@@ -41,6 +49,16 @@ public class HealthPickup : NetworkBehaviour
     }
 
     private void OnTriggerEnter(Collider other)
+    {
+        TryPickUp(other);
+    }
+
+    private void OnTriggerStay(Collider other)
+    {
+        TryPickUp(other);
+    }
+
+    private void TryPickUp(Collider other)
     {
         if (!IsServer || !IsSpawned || _pickupManager == null)
         {
@@ -103,5 +121,69 @@ public class HealthPickup : NetworkBehaviour
         {
             colliders[i].enabled = false;
         }
+
+        AlignVisualToPickupOrigin(visualTransform);
+    }
+
+    private void AlignVisualToPickupOrigin(Transform visualTransform)
+    {
+        if (!TryGetLocalVisualBounds(visualTransform, out Bounds localBounds))
+        {
+            return;
+        }
+
+        Vector3 alignmentOffset = new Vector3(
+            -localBounds.center.x,
+            -localBounds.min.y,
+            -localBounds.center.z);
+
+        visualTransform.localPosition = _visualOffset + alignmentOffset;
+    }
+
+    private bool TryGetLocalVisualBounds(Transform visualTransform, out Bounds localBounds)
+    {
+        Renderer[] renderers = visualTransform.GetComponentsInChildren<Renderer>(true);
+        bool hasBounds = false;
+        localBounds = default;
+
+        for (int i = 0; i < renderers.Length; i++)
+        {
+            Renderer renderer = renderers[i];
+            if (renderer == null)
+            {
+                continue;
+            }
+
+            EncapsulateWorldBounds(renderer.bounds, ref localBounds, ref hasBounds);
+        }
+
+        return hasBounds;
+    }
+
+    private void EncapsulateWorldBounds(Bounds worldBounds, ref Bounds localBounds, ref bool hasBounds)
+    {
+        Vector3 min = worldBounds.min;
+        Vector3 max = worldBounds.max;
+
+        EncapsulateLocalPoint(transform.InverseTransformPoint(new Vector3(min.x, min.y, min.z)), ref localBounds, ref hasBounds);
+        EncapsulateLocalPoint(transform.InverseTransformPoint(new Vector3(min.x, min.y, max.z)), ref localBounds, ref hasBounds);
+        EncapsulateLocalPoint(transform.InverseTransformPoint(new Vector3(min.x, max.y, min.z)), ref localBounds, ref hasBounds);
+        EncapsulateLocalPoint(transform.InverseTransformPoint(new Vector3(min.x, max.y, max.z)), ref localBounds, ref hasBounds);
+        EncapsulateLocalPoint(transform.InverseTransformPoint(new Vector3(max.x, min.y, min.z)), ref localBounds, ref hasBounds);
+        EncapsulateLocalPoint(transform.InverseTransformPoint(new Vector3(max.x, min.y, max.z)), ref localBounds, ref hasBounds);
+        EncapsulateLocalPoint(transform.InverseTransformPoint(new Vector3(max.x, max.y, min.z)), ref localBounds, ref hasBounds);
+        EncapsulateLocalPoint(transform.InverseTransformPoint(new Vector3(max.x, max.y, max.z)), ref localBounds, ref hasBounds);
+    }
+
+    private static void EncapsulateLocalPoint(Vector3 point, ref Bounds bounds, ref bool hasBounds)
+    {
+        if (!hasBounds)
+        {
+            bounds = new Bounds(point, Vector3.zero);
+            hasBounds = true;
+            return;
+        }
+
+        bounds.Encapsulate(point);
     }
 }

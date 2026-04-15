@@ -150,7 +150,7 @@ public class PlayerNetwork : NetworkBehaviour
 
     private string GetFallbackNicknameValue()
     {
-        return $"\u0418\u0433\u0440\u043e\u043a_{OwnerClientId}";
+        return $"Игрок_{OwnerClientId}";
     }
 
     private void OnHpChanged(int _, int nextHp)

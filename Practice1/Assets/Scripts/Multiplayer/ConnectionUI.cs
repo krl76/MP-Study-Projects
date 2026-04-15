@@ -17,7 +17,7 @@ public class ConnectionUI : MonoBehaviour
     [SerializeField] private string _address = "127.0.0.1";
     [SerializeField] private ushort _port = 7777;
 
-    public static string PlayerNickname { get; private set; } = "\u0418\u0433\u0440\u043e\u043a";
+    public static string PlayerNickname { get; private set; } = "Игрок";
 
     private NetworkManager _networkManager;
     private bool _callbacksRegistered;
@@ -79,11 +79,11 @@ public class ConnectionUI : MonoBehaviour
         if (_networkManager.StartHost())
         {
             UpdatePanels(true);
-            SetStatus($"\u0417\u0430\u043f\u0443\u0441\u043a \u0445\u043e\u0441\u0442\u0430 \u043d\u0430 {_address}:{_port}...");
+            SetStatus($"Запуск хоста на {_address}:{_port}...");
         }
         else
         {
-            SetStatus("\u041d\u0435 \u0443\u0434\u0430\u043b\u043e\u0441\u044c \u0437\u0430\u043f\u0443\u0441\u0442\u0438\u0442\u044c \u0445\u043e\u0441\u0442.");
+            SetStatus("Не удалось запустить хост.");
         }
     }
 
@@ -98,11 +98,11 @@ public class ConnectionUI : MonoBehaviour
         if (_networkManager.StartClient())
         {
             UpdatePanels(true);
-            SetStatus($"\u041f\u043e\u0434\u043a\u043b\u044e\u0447\u0435\u043d\u0438\u0435 \u043a\u043b\u0438\u0435\u043d\u0442\u0430 \u043a {_address}:{_port}...");
+            SetStatus($"Подключение клиента к {_address}:{_port}...");
         }
         else
         {
-            SetStatus("\u041d\u0435 \u0443\u0434\u0430\u043b\u043e\u0441\u044c \u0437\u0430\u043f\u0443\u0441\u0442\u0438\u0442\u044c \u043a\u043b\u0438\u0435\u043d\u0442\u0430.");
+            SetStatus("Не удалось запустить клиента.");
         }
     }
 
@@ -113,13 +113,13 @@ public class ConnectionUI : MonoBehaviour
 
         if (_networkManager == null)
         {
-            SetStatus("\u041d\u0430 \u0441\u0446\u0435\u043d\u0435 \u043e\u0442\u0441\u0443\u0442\u0441\u0442\u0432\u0443\u0435\u0442 NetworkManager.");
+            SetStatus("На сцене отсутствует NetworkManager.");
             return false;
         }
 
         if (_networkManager.IsListening)
         {
-            SetStatus("\u0421\u0435\u0442\u0435\u0432\u0430\u044f \u0441\u0435\u0441\u0441\u0438\u044f \u0443\u0436\u0435 \u0437\u0430\u043f\u0443\u0449\u0435\u043d\u0430.");
+            SetStatus("Сетевая сессия уже запущена.");
             return false;
         }
 
@@ -131,7 +131,7 @@ public class ConnectionUI : MonoBehaviour
     private void SaveNickname()
     {
         string rawValue = _nicknameInput != null ? _nicknameInput.text : string.Empty;
-        PlayerNickname = string.IsNullOrWhiteSpace(rawValue) ? "\u0418\u0433\u0440\u043e\u043a" : rawValue.Trim();
+        PlayerNickname = string.IsNullOrWhiteSpace(rawValue) ? "Игрок" : rawValue.Trim();
     }
 
     private void ConfigureTransport()
@@ -212,13 +212,13 @@ public class ConnectionUI : MonoBehaviour
             UpdatePanels(true);
             TryBindLocalPlayer();
             string mode = _networkManager.IsHost
-                ? "\u0425\u043e\u0441\u0442"
-                : "\u041a\u043b\u0438\u0435\u043d\u0442";
-            SetStatus($"{mode} \u0437\u0430\u043f\u0443\u0449\u0435\u043d. \u041d\u0438\u043a: {PlayerNickname}.");
+                ? "Хост"
+                : "Клиент";
+            SetStatus($"{mode} запущен. Ник: {PlayerNickname}.");
             return;
         }
 
-        SetStatus($"\u041a\u043b\u0438\u0435\u043d\u0442 {clientId} \u043f\u043e\u0434\u043a\u043b\u044e\u0447\u0438\u043b\u0441\u044f.");
+        SetStatus($"Клиент {clientId} подключился.");
     }
 
     private void OnClientDisconnected(ulong clientId)
@@ -233,11 +233,11 @@ public class ConnectionUI : MonoBehaviour
         {
             UnbindLocalPlayer();
             UpdatePanels(false);
-            SetStatus("\u0421\u043e\u0435\u0434\u0438\u043d\u0435\u043d\u0438\u0435 \u0441 \u0445\u043e\u0441\u0442\u043e\u043c \u0440\u0430\u0437\u043e\u0440\u0432\u0430\u043d\u043e.");
+            SetStatus("Соединение с хостом разорвано.");
             return;
         }
 
-        SetStatus($"\u041a\u043b\u0438\u0435\u043d\u0442 {clientId} \u043e\u0442\u043a\u043b\u044e\u0447\u0438\u043b\u0441\u044f.");
+        SetStatus($"Клиент {clientId} отключился.");
     }
 
     private void OnClientStopped(bool _)
@@ -251,7 +251,7 @@ public class ConnectionUI : MonoBehaviour
         UnbindLocalPlayer();
         UpdatePanels(false);
         SetStatus(string.IsNullOrWhiteSpace(_networkManager.DisconnectReason)
-            ? "\u0421\u0435\u0441\u0441\u0438\u044f \u043e\u0441\u0442\u0430\u043d\u043e\u0432\u043b\u0435\u043d\u0430."
+            ? "Сессия остановлена."
             : _networkManager.DisconnectReason);
     }
 
@@ -437,25 +437,25 @@ public class ConnectionUI : MonoBehaviour
 
         if (_localPlayer == null)
         {
-            SetStatus("\u0421\u0435\u0441\u0441\u0438\u044f \u0430\u043a\u0442\u0438\u0432\u043d\u0430. \u041e\u0436\u0438\u0434\u0430\u043d\u0438\u0435 \u0441\u043f\u0430\u0432\u043d\u0430 \u043b\u043e\u043a\u0430\u043b\u044c\u043d\u043e\u0433\u043e \u0438\u0433\u0440\u043e\u043a\u0430...");
+            SetStatus("Сессия активна. Ожидание спавна локального игрока...");
             return;
         }
 
         string mode = _networkManager.IsHost
-            ? "\u0425\u043e\u0441\u0442"
-            : (_networkManager.IsServer ? "\u0421\u0435\u0440\u0432\u0435\u0440" : "\u041a\u043b\u0438\u0435\u043d\u0442");
+            ? "Хост"
+            : (_networkManager.IsServer ? "Сервер" : "Клиент");
 
         string respawnText = string.Empty;
         if (!_localPlayer.IsAlive.Value)
         {
             float secondsRemaining = Mathf.Max(0f, _respawnCountdownEndsAt - Time.unscaledTime);
-            respawnText = $"\n\u0412\u043e\u0437\u0440\u043e\u0436\u0434\u0435\u043d\u0438\u0435 \u0447\u0435\u0440\u0435\u0437 {secondsRemaining:0.0} \u0441\u0435\u043a.";
+            respawnText = $"\nВозрождение через {secondsRemaining:0.0} сек.";
         }
 
         SetStatus(
-            $"{mode} \u0430\u043a\u0442\u0438\u0432\u0435\u043d \u043d\u0430 {_address}:{_port}\n" +
-            $"HP: {_localPlayer.HP.Value}/{_localPlayer.MaxHp} | \u041f\u0430\u0442\u0440\u043e\u043d\u044b: {_localPlayer.Ammo.Value}\n" +
-            "WASD - \u0434\u0432\u0438\u0436\u0435\u043d\u0438\u0435, Space - \u0432\u044b\u0441\u0442\u0440\u0435\u043b" +
+            $"{mode} активен на {_address}:{_port}\n" +
+            $"Здоровье: {_localPlayer.HP.Value}/{_localPlayer.MaxHp} | Патроны: {_localPlayer.Ammo.Value}\n" +
+            "Управление: WASD для перемещения, пробел для выстрела." +
             respawnText
         );
     }

@@ -96,7 +96,7 @@ public class PlayerView : NetworkBehaviour
     {
         if (_hpText != null)
         {
-            _hpText.text = $"HP: {newValue}";
+            _hpText.text = $"Здоровье: {newValue}";
         }
     }
 
