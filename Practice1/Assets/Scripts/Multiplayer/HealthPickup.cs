@@ -20,6 +20,7 @@ public class HealthPickup : NetworkBehaviour
     private SphereCollider _sphereCollider;
     private MeshRenderer _rootRenderer;
     private GameObject _spawnedVisual;
+    private readonly Collider[] _overlapResults = new Collider[16];
 
     private void Awake()
     {
@@ -59,26 +60,52 @@ public class HealthPickup : NetworkBehaviour
         TryPickUp(other);
     }
 
-    private void TryPickUp(Collider other)
+    private void FixedUpdate()
     {
         if (!base.IsServerInitialized || !base.IsSpawned || _pickupManager == null)
         {
             return;
         }
 
+        Vector3 center = transform.TransformPoint(_triggerCenter);
+        float radius = Mathf.Max(0.05f, _triggerRadius);
+        int overlapCount = Physics.OverlapSphereNonAlloc(center, radius, _overlapResults, ~0, QueryTriggerInteraction.Ignore);
+        for (int i = 0; i < overlapCount; i++)
+        {
+            Collider hit = _overlapResults[i];
+            if (hit == null)
+            {
+                continue;
+            }
+
+            if (TryPickUp(hit))
+            {
+                break;
+            }
+        }
+    }
+
+    private bool TryPickUp(Collider other)
+    {
+        if (!base.IsServerInitialized || !base.IsSpawned || _pickupManager == null)
+        {
+            return false;
+        }
+
         PlayerNetwork player = other.GetComponentInParent<PlayerNetwork>();
         if (player == null || !player.IsAlive)
         {
-            return;
+            return false;
         }
 
         if (!player.TryHeal(_healAmount))
         {
-            return;
+            return false;
         }
 
         _pickupManager.NotifyPickedUp(_spawnPosition, _respawnDelay);
         base.ServerManager.Despawn(base.NetworkObject, DespawnType.Destroy);
+        return true;
     }
 
     private void ApplyColliderSettings()
