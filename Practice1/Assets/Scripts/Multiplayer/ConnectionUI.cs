@@ -296,6 +296,8 @@ public class ConnectionUI : MonoBehaviour
         {
             UpdatePanels(true);
             TryBindLocalPlayer();
+            TryBindGameManager();
+            RefreshPanelsForGameState();
             string mode = _networkManager != null && _networkManager.IsHostStarted ? "Хост" : "Клиент";
             SetStatus($"{mode} запущен. Ник: {PlayerNickname}.");
             return;
@@ -319,12 +321,14 @@ public class ConnectionUI : MonoBehaviour
         if (args.ConnectionState == RemoteConnectionState.Started)
         {
             SetStatus($"Клиент {connection.ClientId} подключился.");
+            RefreshSessionHud();
             return;
         }
 
         if (args.ConnectionState == RemoteConnectionState.Stopped)
         {
             SetStatus($"Клиент {connection.ClientId} отключился.");
+            RefreshSessionHud();
         }
     }
 
@@ -493,7 +497,7 @@ public class ConnectionUI : MonoBehaviour
         SetStatus(
             $"{mode} активен на {_address}:{_port}\n" +
             stateText + "\n" +
-            $"Здоровье: {_localPlayer.HP}/{_localPlayer.MaxHp} | Патроны: {_localPlayer.Ammo} | Очки: {_localPlayer.Score}\n" +
+            $"Здоровье: {_localPlayer.HP}/{_localPlayer.MaxHp} | Патроны: {_localPlayer.Ammo} | Очки: {_localPlayer.Score} | Пинг: {GetPingText()}\n" +
             "Управление: WASD для перемещения, пробел для выстрела." +
             respawnText
         );
@@ -546,6 +550,7 @@ public class ConnectionUI : MonoBehaviour
     private void OnConnectedPlayersChanged(int _, int __)
     {
         RefreshPanelsForGameState();
+        RefreshSessionHud();
     }
 
     private void OnMatchTimerChanged(float _, float __)
@@ -660,6 +665,16 @@ public class ConnectionUI : MonoBehaviour
 
         result += "\nВозврат в лобби через несколько секунд...";
         return result;
+    }
+
+    private string GetPingText()
+    {
+        if (_networkManager == null || _networkManager.TimeManager == null || !_networkManager.IsClientStarted)
+        {
+            return "-";
+        }
+
+        return $"{_networkManager.TimeManager.RoundTripTime} мс";
     }
 
     private bool IsSessionActive()

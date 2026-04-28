@@ -7,12 +7,14 @@ using UnityEngine;
 public class PickupManager : MonoBehaviour
 {
     [SerializeField] private GameObject _healthPickupPrefab;
+    [SerializeField] private GameObject _ammoPickupPrefab;
     [SerializeField] private float _defaultRespawnDelay = 10f;
 
     private NetworkManager _networkManager;
     private bool _hasSpawnedInitialPickups;
 
     public GameObject HealthPickupPrefab => _healthPickupPrefab;
+    public GameObject AmmoPickupPrefab => _ammoPickupPrefab;
 
     private void Awake()
     {
@@ -47,6 +49,17 @@ public class PickupManager : MonoBehaviour
         StartCoroutine(RespawnAfterDelay(position, delay));
     }
 
+    public void NotifyAmmoPickedUp(Vector3 position, float respawnDelay)
+    {
+        if (_networkManager == null || !_networkManager.IsServerStarted)
+        {
+            return;
+        }
+
+        float delay = respawnDelay > 0f ? respawnDelay : _defaultRespawnDelay;
+        StartCoroutine(RespawnAmmoAfterDelay(position, delay));
+    }
+
     private void HandleServerStarted()
     {
         if (_hasSpawnedInitialPickups)
@@ -71,7 +84,16 @@ public class PickupManager : MonoBehaviour
             PickupSpawnPoint spawnPoint = PickupSpawnPoint.GetByIndex(i);
             if (spawnPoint != null)
             {
-                SpawnPickup(spawnPoint.transform.position);
+                SpawnHealthPickup(spawnPoint.transform.position);
+            }
+        }
+
+        for (int i = 0; i < AmmoPickupSpawnPoint.Count; i++)
+        {
+            AmmoPickupSpawnPoint spawnPoint = AmmoPickupSpawnPoint.GetByIndex(i);
+            if (spawnPoint != null)
+            {
+                SpawnAmmoPickup(spawnPoint.transform.position);
             }
         }
     }
@@ -85,10 +107,22 @@ public class PickupManager : MonoBehaviour
             yield break;
         }
 
-        SpawnPickup(position);
+        SpawnHealthPickup(position);
     }
 
-    private void SpawnPickup(Vector3 position)
+    private IEnumerator RespawnAmmoAfterDelay(Vector3 position, float delay)
+    {
+        yield return new WaitForSeconds(delay);
+
+        if (_networkManager == null || !_networkManager.IsServerStarted)
+        {
+            yield break;
+        }
+
+        SpawnAmmoPickup(position);
+    }
+
+    private void SpawnHealthPickup(Vector3 position)
     {
         if (_healthPickupPrefab == null)
         {
@@ -97,6 +131,20 @@ public class PickupManager : MonoBehaviour
 
         GameObject pickupObject = Instantiate(_healthPickupPrefab, position, Quaternion.identity);
         HealthPickup pickup = pickupObject.GetComponent<HealthPickup>();
+        pickup?.Initialize(this, position);
+
+        _networkManager.ServerManager.Spawn(pickupObject);
+    }
+
+    private void SpawnAmmoPickup(Vector3 position)
+    {
+        if (_ammoPickupPrefab == null)
+        {
+            return;
+        }
+
+        GameObject pickupObject = Instantiate(_ammoPickupPrefab, position, Quaternion.identity);
+        AmmoPickup pickup = pickupObject.GetComponent<AmmoPickup>();
         pickup?.Initialize(this, position);
 
         _networkManager.ServerManager.Spawn(pickupObject);

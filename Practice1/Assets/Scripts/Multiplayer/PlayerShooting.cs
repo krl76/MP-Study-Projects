@@ -62,6 +62,17 @@ public class PlayerShooting : NetworkBehaviour
         _playerNetwork.SetAmmoServer(_maxAmmo);
     }
 
+    public bool TryAddAmmoServer(int amount)
+    {
+        if (!base.IsServerInitialized || _playerNetwork == null || !_playerNetwork.IsAlive || _playerNetwork.Ammo >= _maxAmmo)
+        {
+            return false;
+        }
+
+        _playerNetwork.SetAmmoServer(Mathf.Min(_maxAmmo, _playerNetwork.Ammo + Mathf.Max(1, amount)));
+        return true;
+    }
+
     [ServerRpc]
     private void ShootServerRpc(NetworkConnection sender = null)
     {

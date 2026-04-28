@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using FishNet;
 using FishNet.Connection;
 using FishNet.Object;
 using FishNet.Object.Synchronizing;
@@ -174,7 +175,10 @@ public class GameManager : NetworkBehaviour
             return;
         }
 
-        _connectedPlayers.Value = base.ServerManager.Clients.Count;
+        int remoteClientCount = base.ServerManager.Clients.Count;
+        int hostClientCount = base.NetworkManager != null && base.NetworkManager.IsHostStarted ? 1 : 0;
+        int spawnedPlayerCount = GetSpawnedPlayersSnapshot().Count;
+        _connectedPlayers.Value = Mathf.Min(_requiredPlayers, Mathf.Max(remoteClientCount + hostClientCount, spawnedPlayerCount));
     }
 
     private void StartMatchServer()
@@ -205,6 +209,7 @@ public class GameManager : NetworkBehaviour
 
     private void ResetToLobbyServer()
     {
+        DisconnectClientsToConnectionMenu();
         ResetRoundServer(keepState: false);
         _currentState.Value = GameState.WaitingForPlayers;
         Debug.Log("[Server] Lobby reset. Waiting for players...");
@@ -273,5 +278,17 @@ public class GameManager : NetworkBehaviour
     private void OnLobbyStartCountdownSyncChanged(float previous, float next, bool asServer)
     {
         LobbyStartCountdownChanged?.Invoke(previous, next);
+    }
+
+    [ObserversRpc]
+    private void DisconnectClientsToConnectionMenu()
+    {
+        FishNet.Managing.NetworkManager networkManager = InstanceFinder.NetworkManager;
+        if (networkManager == null || networkManager.ClientManager == null || !networkManager.IsClientStarted)
+        {
+            return;
+        }
+
+        networkManager.ClientManager.StopConnection();
     }
 }
