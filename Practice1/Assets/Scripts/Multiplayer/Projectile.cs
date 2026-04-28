@@ -1,4 +1,4 @@
-using Unity.Netcode;
+using FishNet.Object;
 using UnityEngine;
 
 [RequireComponent(typeof(NetworkObject))]
@@ -24,11 +24,11 @@ public class Projectile : NetworkBehaviour
         _rigidbody.useGravity = false;
     }
 
-    public override void OnNetworkSpawn()
+    public override void OnStartNetwork()
     {
         _despawnAt = Time.time + _lifeTime;
 
-        if (IsServer)
+        if (base.IsServerInitialized)
         {
             _rigidbody.isKinematic = false;
             _rigidbody.linearVelocity = _initialDirection.normalized * _speed;
@@ -42,7 +42,7 @@ public class Projectile : NetworkBehaviour
 
     private void FixedUpdate()
     {
-        if (!IsServer || !IsSpawned)
+        if (!base.IsServerInitialized || !base.IsSpawned)
         {
             return;
         }
@@ -55,7 +55,7 @@ public class Projectile : NetworkBehaviour
 
     private void OnTriggerEnter(Collider other)
     {
-        if (!IsServer || !IsSpawned)
+        if (!base.IsServerInitialized || !base.IsSpawned)
         {
             return;
         }
@@ -63,7 +63,7 @@ public class Projectile : NetworkBehaviour
         PlayerNetwork target = other.GetComponentInParent<PlayerNetwork>();
         if (target != null)
         {
-            if (target.OwnerClientId == OwnerClientId || !target.IsAlive.Value)
+            if (target.OwnerId == base.OwnerId || !target.IsAlive)
             {
                 return;
             }
@@ -94,9 +94,9 @@ public class Projectile : NetworkBehaviour
 
     private void DespawnSelf()
     {
-        if (NetworkObject != null && NetworkObject.IsSpawned)
+        if (base.NetworkObject != null && base.NetworkObject.IsSpawned)
         {
-            NetworkObject.Despawn(destroy: true);
+            base.ServerManager.Despawn(base.NetworkObject, DespawnType.Destroy);
         }
     }
 }

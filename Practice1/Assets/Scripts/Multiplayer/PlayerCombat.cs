@@ -1,4 +1,4 @@
-using Unity.Netcode;
+using FishNet.Object;
 using UnityEngine;
 
 public class PlayerCombat : NetworkBehaviour
@@ -8,7 +8,7 @@ public class PlayerCombat : NetworkBehaviour
 
     public bool TryAttackNearest()
     {
-        if (!IsOwner || !IsSpawned || _playerNetwork == null)
+        if (!base.IsOwner || !base.IsSpawned || _playerNetwork == null)
         {
             return false;
         }
@@ -20,19 +20,13 @@ public class PlayerCombat : NetworkBehaviour
     [ServerRpc]
     private void AttackNearestTargetServerRpc()
     {
-        if (_playerNetwork == null || _playerNetwork.HP.Value <= 0)
+        if (_playerNetwork == null || _playerNetwork.HP <= 0)
         {
             return;
         }
 
         PlayerNetwork target = FindNearestValidTarget();
-        if (target == null)
-        {
-            return;
-        }
-
-        int nextHp = Mathf.Max(0, target.HP.Value - Mathf.Max(1, _damage));
-        target.HP.Value = nextHp;
+        target?.ApplyDamage(_damage);
     }
 
     private PlayerNetwork FindNearestValidTarget()
@@ -45,8 +39,8 @@ public class PlayerCombat : NetworkBehaviour
             if (candidate == null ||
                 candidate == _playerNetwork ||
                 !candidate.IsSpawned ||
-                candidate.OwnerClientId == OwnerClientId ||
-                candidate.HP.Value <= 0)
+                candidate.OwnerId == base.OwnerId ||
+                candidate.HP <= 0)
             {
                 continue;
             }

@@ -1,6 +1,9 @@
+using FishNet;
+using FishNet.Connection;
+using FishNet.Managing;
+using FishNet.Transporting;
+using FishNet.Transporting.Tugboat;
 using TMPro;
-using Unity.Netcode;
-using Unity.Netcode.Transports.UTP;
 using UnityEngine;
 using UnityEngine.UI;
 
@@ -28,7 +31,6 @@ public class ConnectionUI : MonoBehaviour
     {
         BindButtons();
         CacheNetworkManager();
-        EnsureRequiredNetworkPrefabs();
         UpdatePanels(false);
         SetStatus(string.Empty);
     }
@@ -47,7 +49,7 @@ public class ConnectionUI : MonoBehaviour
     private void Update()
     {
         CacheNetworkManager();
-        if (_networkManager == null || !_networkManager.IsListening)
+        if (_networkManager == null || !IsSessionActive())
         {
             return;
         }
@@ -76,7 +78,9 @@ public class ConnectionUI : MonoBehaviour
         }
 
         ConfigureTransport();
-        if (_networkManager.StartHost())
+        bool serverStarted = _networkManager.ServerManager.StartConnection();
+        bool clientStarted = serverStarted && _networkManager.ClientManager.StartConnection();
+        if (serverStarted && clientStarted)
         {
             UpdatePanels(true);
             SetStatus($"Запуск хоста на {_address}:{_port}...");
@@ -95,7 +99,7 @@ public class ConnectionUI : MonoBehaviour
         }
 
         ConfigureTransport();
-        if (_networkManager.StartClient())
+        if (_networkManager.ClientManager.StartConnection())
         {
             UpdatePanels(true);
             SetStatus($"Подключение клиента к {_address}:{_port}...");
@@ -113,17 +117,15 @@ public class ConnectionUI : MonoBehaviour
 
         if (_networkManager == null)
         {
-            SetStatus("На сцене отсутствует NetworkManager.");
+            SetStatus("На сцене отсутствует FishNet NetworkManager.");
             return false;
         }
 
-        if (_networkManager.IsListening)
+        if (IsSessionActive())
         {
             SetStatus("Сетевая сессия уже запущена.");
             return false;
         }
-
-        EnsureRequiredNetworkPrefabs();
 
         return true;
     }
@@ -136,13 +138,14 @@ public class ConnectionUI : MonoBehaviour
 
     private void ConfigureTransport()
     {
-        UnityTransport transport = _networkManager.GetComponent<UnityTransport>();
+        Tugboat transport = _networkManager.GetComponent<Tugboat>();
         if (transport == null)
         {
             return;
         }
 
-        transport.SetConnectionData(_address, _port, "0.0.0.0");
+        transport.SetClientAddress(_address);
+        transport.SetPort(_port);
     }
 
     private void BindButtons()
@@ -180,9 +183,8 @@ public class ConnectionUI : MonoBehaviour
             return;
         }
 
-        _networkManager.OnClientConnectedCallback += OnClientConnected;
-        _networkManager.OnClientDisconnectCallback += OnClientDisconnected;
-        _networkManager.OnClientStopped += OnClientStopped;
+        _networkManager.ClientManager.OnClientConnectionState += OnClientConnectionState;
+        _networkManager.ServerManager.OnRemoteConnectionState += OnRemoteConnectionState;
         _callbacksRegistered = true;
     }
 
@@ -193,72 +195,53 @@ public class ConnectionUI : MonoBehaviour
             return;
         }
 
-        _networkManager.OnClientConnectedCallback -= OnClientConnected;
-        _networkManager.OnClientDisconnectCallback -= OnClientDisconnected;
-        _networkManager.OnClientStopped -= OnClientStopped;
+        _networkManager.ClientManager.OnClientConnectionState -= OnClientConnectionState;
+        _networkManager.ServerManager.OnRemoteConnectionState -= OnRemoteConnectionState;
         _callbacksRegistered = false;
     }
 
-    private void OnClientConnected(ulong clientId)
+    private void OnClientConnectionState(ClientConnectionStateArgs args)
     {
-        CacheNetworkManager();
-        if (_networkManager == null)
-        {
-            return;
-        }
-
-        if (clientId == _networkManager.LocalClientId)
+        if (args.ConnectionState == LocalConnectionState.Started)
         {
             UpdatePanels(true);
             TryBindLocalPlayer();
-            string mode = _networkManager.IsHost
-                ? "Хост"
-                : "Клиент";
+            string mode = _networkManager != null && _networkManager.IsHostStarted ? "Хост" : "Клиент";
             SetStatus($"{mode} запущен. Ник: {PlayerNickname}.");
             return;
         }
 
-        SetStatus($"Клиент {clientId} подключился.");
-    }
-
-    private void OnClientDisconnected(ulong clientId)
-    {
-        CacheNetworkManager();
-        if (_networkManager == null)
-        {
-            return;
-        }
-
-        if (clientId == _networkManager.LocalClientId && !_networkManager.IsHost)
+        if (args.ConnectionState == LocalConnectionState.Stopped)
         {
             UnbindLocalPlayer();
             UpdatePanels(false);
-            SetStatus("Соединение с хостом разорвано.");
-            return;
+            SetStatus("Сессия остановлена.");
         }
-
-        SetStatus($"Клиент {clientId} отключился.");
     }
 
-    private void OnClientStopped(bool _)
+    private void OnRemoteConnectionState(NetworkConnection connection, RemoteConnectionStateArgs args)
     {
-        CacheNetworkManager();
-        if (_networkManager == null || _networkManager.IsListening)
+        if (connection == null)
         {
             return;
         }
 
-        UnbindLocalPlayer();
-        UpdatePanels(false);
-        SetStatus(string.IsNullOrWhiteSpace(_networkManager.DisconnectReason)
-            ? "Сессия остановлена."
-            : _networkManager.DisconnectReason);
+        if (args.ConnectionState == RemoteConnectionState.Started)
+        {
+            SetStatus($"Клиент {connection.ClientId} подключился.");
+            return;
+        }
+
+        if (args.ConnectionState == RemoteConnectionState.Stopped)
+        {
+            SetStatus($"Клиент {connection.ClientId} отключился.");
+        }
     }
 
     private void RefreshSessionState()
     {
         CacheNetworkManager();
-        bool sessionActive = _networkManager != null && _networkManager.IsListening;
+        bool sessionActive = IsSessionActive();
         UpdatePanels(sessionActive);
 
         if (!sessionActive)
@@ -295,65 +278,9 @@ public class ConnectionUI : MonoBehaviour
 
     private void CacheNetworkManager()
     {
-        _networkManager = NetworkManager.Singleton != null
-            ? NetworkManager.Singleton
+        _networkManager = InstanceFinder.NetworkManager != null
+            ? InstanceFinder.NetworkManager
             : FindFirstObjectByType<NetworkManager>();
-    }
-
-    private void EnsureRequiredNetworkPrefabs()
-    {
-        if (_networkManager == null)
-        {
-            return;
-        }
-
-        RegisterNetworkPrefab(_networkManager.NetworkConfig.PlayerPrefab);
-
-        GameObject playerPrefab = _networkManager.NetworkConfig.PlayerPrefab;
-        if (playerPrefab != null)
-        {
-            PlayerShooting shooting = playerPrefab.GetComponent<PlayerShooting>();
-            RegisterNetworkPrefab(shooting != null ? shooting.ProjectilePrefab : null);
-        }
-
-        PickupManager pickupManager = FindFirstObjectByType<PickupManager>();
-        if (pickupManager != null)
-        {
-            RegisterNetworkPrefab(pickupManager.HealthPickupPrefab);
-        }
-    }
-
-    private void RegisterNetworkPrefab(GameObject prefab)
-    {
-        if (_networkManager == null || prefab == null)
-        {
-            return;
-        }
-
-        NetworkPrefabs prefabs = _networkManager.NetworkConfig.Prefabs;
-        if (prefabs.Contains(prefab) || IsPrefabInConfiguredLists(prefab, prefabs))
-        {
-            return;
-        }
-
-        prefabs.Add(new NetworkPrefab
-        {
-            Prefab = prefab
-        });
-    }
-
-    private static bool IsPrefabInConfiguredLists(GameObject prefab, NetworkPrefabs prefabs)
-    {
-        for (int i = 0; i < prefabs.NetworkPrefabsLists.Count; i++)
-        {
-            NetworkPrefabsList list = prefabs.NetworkPrefabsLists[i];
-            if (list != null && list.Contains(prefab))
-            {
-                return true;
-            }
-        }
-
-        return false;
     }
 
     private void SetStatus(string message)
@@ -367,17 +294,13 @@ public class ConnectionUI : MonoBehaviour
 
     private void TryBindLocalPlayer()
     {
-        if (_networkManager == null || !_networkManager.IsListening)
+        if (_networkManager == null || !IsSessionActive())
         {
             UnbindLocalPlayer();
             return;
         }
 
-        NetworkObject localPlayerObject = _networkManager.SpawnManager?.GetLocalPlayerObject();
-        PlayerNetwork nextPlayer = localPlayerObject != null
-            ? localPlayerObject.GetComponent<PlayerNetwork>()
-            : null;
-
+        PlayerNetwork nextPlayer = FindLocalPlayer();
         if (nextPlayer == _localPlayer)
         {
             return;
@@ -391,11 +314,11 @@ public class ConnectionUI : MonoBehaviour
             return;
         }
 
-        _localPlayer.HP.OnValueChanged += OnLocalStatsChanged;
-        _localPlayer.Ammo.OnValueChanged += OnLocalStatsChanged;
-        _localPlayer.IsAlive.OnValueChanged += OnLocalAliveChanged;
+        _localPlayer.HpChanged += OnLocalStatsChanged;
+        _localPlayer.AmmoChanged += OnLocalStatsChanged;
+        _localPlayer.AliveChanged += OnLocalAliveChanged;
 
-        if (!_localPlayer.IsAlive.Value)
+        if (!_localPlayer.IsAlive)
         {
             _respawnCountdownEndsAt = Time.unscaledTime + _localPlayer.RespawnDelay;
         }
@@ -408,9 +331,9 @@ public class ConnectionUI : MonoBehaviour
             return;
         }
 
-        _localPlayer.HP.OnValueChanged -= OnLocalStatsChanged;
-        _localPlayer.Ammo.OnValueChanged -= OnLocalStatsChanged;
-        _localPlayer.IsAlive.OnValueChanged -= OnLocalAliveChanged;
+        _localPlayer.HpChanged -= OnLocalStatsChanged;
+        _localPlayer.AmmoChanged -= OnLocalStatsChanged;
+        _localPlayer.AliveChanged -= OnLocalAliveChanged;
         _localPlayer = null;
         _respawnCountdownEndsAt = 0f;
     }
@@ -430,7 +353,7 @@ public class ConnectionUI : MonoBehaviour
 
     private void RefreshSessionHud()
     {
-        if (_networkManager == null || !_networkManager.IsListening)
+        if (_networkManager == null || !IsSessionActive())
         {
             return;
         }
@@ -441,12 +364,12 @@ public class ConnectionUI : MonoBehaviour
             return;
         }
 
-        string mode = _networkManager.IsHost
+        string mode = _networkManager.IsHostStarted
             ? "Хост"
-            : (_networkManager.IsServer ? "Сервер" : "Клиент");
+            : (_networkManager.IsServerStarted ? "Сервер" : "Клиент");
 
         string respawnText = string.Empty;
-        if (!_localPlayer.IsAlive.Value)
+        if (!_localPlayer.IsAlive)
         {
             float secondsRemaining = Mathf.Max(0f, _respawnCountdownEndsAt - Time.unscaledTime);
             respawnText = $"\nВозрождение через {secondsRemaining:0.0} сек.";
@@ -454,9 +377,27 @@ public class ConnectionUI : MonoBehaviour
 
         SetStatus(
             $"{mode} активен на {_address}:{_port}\n" +
-            $"Здоровье: {_localPlayer.HP.Value}/{_localPlayer.MaxHp} | Патроны: {_localPlayer.Ammo.Value}\n" +
+            $"Здоровье: {_localPlayer.HP}/{_localPlayer.MaxHp} | Патроны: {_localPlayer.Ammo}\n" +
             "Управление: WASD для перемещения, пробел для выстрела." +
             respawnText
         );
+    }
+
+    private bool IsSessionActive()
+    {
+        return _networkManager != null && (_networkManager.IsClientStarted || _networkManager.IsServerStarted);
+    }
+
+    private static PlayerNetwork FindLocalPlayer()
+    {
+        foreach (PlayerNetwork player in PlayerNetwork.SpawnedPlayers)
+        {
+            if (player != null && player.IsOwner)
+            {
+                return player;
+            }
+        }
+
+        return null;
     }
 }

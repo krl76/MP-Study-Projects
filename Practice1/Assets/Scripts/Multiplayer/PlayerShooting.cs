@@ -1,4 +1,5 @@
-using Unity.Netcode;
+using FishNet.Object;
+using FishNet.Connection;
 using UnityEngine;
 using UnityEngine.InputSystem;
 
@@ -23,12 +24,12 @@ public class PlayerShooting : NetworkBehaviour
         EnsureFirePoint();
     }
 
-    public override void OnNetworkSpawn()
+    public override void OnStartNetwork()
     {
         _playerNetwork ??= GetComponent<PlayerNetwork>();
         EnsureFirePoint();
 
-        if (IsServer && _playerNetwork != null && _playerNetwork.Ammo.Value <= 0)
+        if (base.IsServerInitialized && _playerNetwork != null && _playerNetwork.Ammo <= 0)
         {
             ResetForSpawnServer();
         }
@@ -36,7 +37,7 @@ public class PlayerShooting : NetworkBehaviour
 
     private void Update()
     {
-        if (!IsOwner || !IsSpawned || _playerNetwork == null || !_playerNetwork.IsAlive.Value)
+        if (!base.IsOwner || !base.IsSpawned || _playerNetwork == null || !_playerNetwork.IsAlive)
         {
             return;
         }
@@ -59,7 +60,7 @@ public class PlayerShooting : NetworkBehaviour
 
     public void ResetForSpawnServer()
     {
-        if (!IsServer || _playerNetwork == null)
+        if (!base.IsServerInitialized || _playerNetwork == null)
         {
             return;
         }
@@ -69,7 +70,7 @@ public class PlayerShooting : NetworkBehaviour
     }
 
     [ServerRpc]
-    private void ShootServerRpc(Vector3 position, Vector3 direction, ServerRpcParams rpcParams = default)
+    private void ShootServerRpc(Vector3 position, Vector3 direction, NetworkConnection sender = null)
     {
         _playerNetwork ??= GetComponent<PlayerNetwork>();
         if (_playerNetwork == null || _projectilePrefab == null)
@@ -77,12 +78,12 @@ public class PlayerShooting : NetworkBehaviour
             return;
         }
 
-        if (!_playerNetwork.IsAlive.Value || _playerNetwork.HP.Value <= 0)
+        if (!_playerNetwork.IsAlive || _playerNetwork.HP <= 0)
         {
             return;
         }
 
-        if (_playerNetwork.Ammo.Value <= 0)
+        if (_playerNetwork.Ammo <= 0)
         {
             return;
         }
@@ -100,7 +101,7 @@ public class PlayerShooting : NetworkBehaviour
 
         shotDirection.Normalize();
         _nextShotTime = Time.time + _cooldown;
-        _playerNetwork.SetAmmoServer(_playerNetwork.Ammo.Value - 1);
+        _playerNetwork.SetAmmoServer(_playerNetwork.Ammo - 1);
 
         GameObject projectileObject = Instantiate(
             _projectilePrefab,
@@ -111,8 +112,7 @@ public class PlayerShooting : NetworkBehaviour
         Projectile projectile = projectileObject.GetComponent<Projectile>();
         projectile?.SetInitialDirection(shotDirection);
 
-        NetworkObject networkObject = projectileObject.GetComponent<NetworkObject>();
-        networkObject.SpawnWithOwnership(rpcParams.Receive.SenderClientId);
+        base.ServerManager.Spawn(projectileObject, sender);
     }
 
     private void EnsureFirePoint()

@@ -1,4 +1,4 @@
-using Unity.Netcode;
+using FishNet.Object;
 using UnityEngine;
 
 [RequireComponent(typeof(NetworkObject))]
@@ -37,7 +37,7 @@ public class HealthPickup : NetworkBehaviour
         UpdateRootRendererVisibility();
     }
 
-    public override void OnNetworkSpawn()
+    public override void OnStartNetwork()
     {
         EnsureVisualInstance();
     }
@@ -60,13 +60,13 @@ public class HealthPickup : NetworkBehaviour
 
     private void TryPickUp(Collider other)
     {
-        if (!IsServer || !IsSpawned || _pickupManager == null)
+        if (!base.IsServerInitialized || !base.IsSpawned || _pickupManager == null)
         {
             return;
         }
 
         PlayerNetwork player = other.GetComponentInParent<PlayerNetwork>();
-        if (player == null || !player.IsAlive.Value)
+        if (player == null || !player.IsAlive)
         {
             return;
         }
@@ -77,7 +77,7 @@ public class HealthPickup : NetworkBehaviour
         }
 
         _pickupManager.NotifyPickedUp(_spawnPosition, _respawnDelay);
-        NetworkObject.Despawn(destroy: true);
+        base.ServerManager.Despawn(base.NetworkObject, DespawnType.Destroy);
     }
 
     private void ApplyColliderSettings()

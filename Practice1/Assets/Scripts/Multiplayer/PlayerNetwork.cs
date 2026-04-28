@@ -1,8 +1,8 @@
+using System;
 using System.Collections;
 using System.Collections.Generic;
-using Unity.Collections;
-using Unity.Netcode;
-using Unity.Netcode.Components;
+using FishNet.Object;
+using FishNet.Object.Synchronizing;
 using UnityEngine;
 
 public class PlayerNetwork : NetworkBehaviour
@@ -15,152 +15,164 @@ public class PlayerNetwork : NetworkBehaviour
     [SerializeField] private float _fallbackSpawnHeight = 1f;
     [SerializeField] private float _fallbackSpawnSpacing = 4f;
 
+    private readonly SyncVar<string> _nickname = new SyncVar<string>("Игрок");
+    private readonly SyncVar<int> _hp = new SyncVar<int>(100);
+    private readonly SyncVar<bool> _isAlive = new SyncVar<bool>(true);
+    private readonly SyncVar<int> _ammo = new SyncVar<int>();
+
     private int _assignedSpawnSlot = -1;
     private Coroutine _respawnRoutine;
-    private CharacterController _characterController;
-    private NetworkTransform _networkTransform;
+    private PlayerMovement _playerMovement;
     private PlayerShooting _playerShooting;
 
     public static IReadOnlyCollection<PlayerNetwork> SpawnedPlayers => s_SpawnedPlayers;
     public int MaxHp => _maxHp;
     public float RespawnDelay => _respawnDelay;
+    public string Nickname => _nickname.Value;
+    public int HP => _hp.Value;
+    public bool IsAlive => _isAlive.Value;
+    public int Ammo => _ammo.Value;
 
-    public NetworkVariable<FixedString32Bytes> Nickname = new NetworkVariable<FixedString32Bytes>(
-        default,
-        NetworkVariableReadPermission.Everyone,
-        NetworkVariableWritePermission.Server
-    );
+    public event Action<string, string> NicknameChanged;
+    public event Action<int, int> HpChanged;
+    public event Action<bool, bool> AliveChanged;
+    public event Action<int, int> AmmoChanged;
 
-    public NetworkVariable<int> HP = new NetworkVariable<int>(
-        100,
-        NetworkVariableReadPermission.Everyone,
-        NetworkVariableWritePermission.Server
-    );
-
-    public NetworkVariable<bool> IsAlive = new NetworkVariable<bool>(
-        true,
-        NetworkVariableReadPermission.Everyone,
-        NetworkVariableWritePermission.Server
-    );
-
-    public NetworkVariable<int> Ammo = new NetworkVariable<int>(
-        0,
-        NetworkVariableReadPermission.Everyone,
-        NetworkVariableWritePermission.Server
-    );
-
-    public override void OnNetworkSpawn()
+    public override void OnStartNetwork()
     {
         s_SpawnedPlayers.Add(this);
         CacheComponents();
-        HP.OnValueChanged += OnHpChanged;
 
-        if (IsServer)
+        _nickname.OnChange += OnNicknameSyncChanged;
+        _hp.OnChange += OnHpSyncChanged;
+        _isAlive.OnChange += OnAliveSyncChanged;
+        _ammo.OnChange += OnAmmoSyncChanged;
+
+        NicknameChanged?.Invoke(_nickname.Value, _nickname.Value);
+        HpChanged?.Invoke(_hp.Value, _hp.Value);
+        AliveChanged?.Invoke(_isAlive.Value, _isAlive.Value);
+        AmmoChanged?.Invoke(_ammo.Value, _ammo.Value);
+
+        if (base.IsServerInitialized)
         {
-            Nickname.Value = GetFallbackNickname();
+            _nickname.Value = GetFallbackNicknameValue();
             RestoreFullStateServer();
             _assignedSpawnSlot = AcquireSpawnSlot(randomize: false);
             MoveToSpawnSlotServer(_assignedSpawnSlot);
         }
 
-        if (IsOwner)
+        if (base.Owner.IsLocalClient)
         {
             SubmitNicknameServerRpc(ConnectionUI.PlayerNickname);
         }
     }
 
-    public override void OnNetworkDespawn()
+    public override void OnStopNetwork()
     {
+        _nickname.OnChange -= OnNicknameSyncChanged;
+        _hp.OnChange -= OnHpSyncChanged;
+        _isAlive.OnChange -= OnAliveSyncChanged;
+        _ammo.OnChange -= OnAmmoSyncChanged;
         s_SpawnedPlayers.Remove(this);
-        HP.OnValueChanged -= OnHpChanged;
         StopRespawnRoutine();
         ReleaseSpawnSlot();
     }
 
-    public override void OnDestroy()
+    private void OnDestroy()
     {
         s_SpawnedPlayers.Remove(this);
-        HP.OnValueChanged -= OnHpChanged;
         StopRespawnRoutine();
         ReleaseSpawnSlot();
-        base.OnDestroy();
     }
 
     public bool ApplyDamage(int damage)
     {
-        if (!IsServer || !IsSpawned || !IsAlive.Value)
+        if (!base.IsServerInitialized || !base.IsSpawned || !_isAlive.Value)
         {
             return false;
         }
 
-        HP.Value = Mathf.Max(0, HP.Value - Mathf.Max(1, damage));
+        _hp.Value = Mathf.Max(0, _hp.Value - Mathf.Max(1, damage));
+        HandleServerDeathIfNeeded();
         return true;
     }
 
     public bool TryHeal(int amount)
     {
-        if (!IsServer || !IsSpawned || !IsAlive.Value || HP.Value >= _maxHp)
+        if (!base.IsServerInitialized || !base.IsSpawned || !_isAlive.Value || _hp.Value >= _maxHp)
         {
             return false;
         }
 
-        HP.Value = Mathf.Min(_maxHp, HP.Value + Mathf.Max(1, amount));
+        _hp.Value = Mathf.Min(_maxHp, _hp.Value + Mathf.Max(1, amount));
         return true;
     }
 
     public void SetAmmoServer(int ammo)
     {
-        if (!IsServer)
+        if (!base.IsServerInitialized)
         {
             return;
         }
 
-        Ammo.Value = Mathf.Max(0, ammo);
+        _ammo.Value = Mathf.Max(0, ammo);
     }
 
     [ServerRpc]
     private void SubmitNicknameServerRpc(string nickname)
     {
-        Nickname.Value = SanitizeNickname(nickname);
+        _nickname.Value = SanitizeNickname(nickname);
     }
 
-    private FixedString32Bytes SanitizeNickname(string nickname)
+    private string SanitizeNickname(string nickname)
     {
         string safeValue = string.IsNullOrWhiteSpace(nickname)
             ? GetFallbackNicknameValue()
             : nickname.Trim();
 
-        FixedString32Bytes fixedNickname = default;
-        fixedNickname.CopyFromTruncated(safeValue);
-
-        if (fixedNickname.Length == 0)
-        {
-            fixedNickname.CopyFromTruncated(GetFallbackNicknameValue());
-        }
-
-        return fixedNickname;
-    }
-
-    private FixedString32Bytes GetFallbackNickname()
-    {
-        FixedString32Bytes fallback = default;
-        fallback.CopyFromTruncated(GetFallbackNicknameValue());
-        return fallback;
+        return safeValue.Length > 32
+            ? safeValue[..32]
+            : safeValue;
     }
 
     private string GetFallbackNicknameValue()
     {
-        return $"Игрок_{OwnerClientId}";
+        return $"Игрок_{base.OwnerId}";
     }
 
-    private void OnHpChanged(int _, int nextHp)
+    private void OnNicknameSyncChanged(string previous, string next, bool asServer)
     {
-        if (!IsServer || nextHp > 0 || !IsAlive.Value)
+        NicknameChanged?.Invoke(previous, next);
+    }
+
+    private void OnHpSyncChanged(int previous, int next, bool asServer)
+    {
+        HpChanged?.Invoke(previous, next);
+
+        if (asServer)
+        {
+            HandleServerDeathIfNeeded();
+        }
+    }
+
+    private void OnAliveSyncChanged(bool previous, bool next, bool asServer)
+    {
+        AliveChanged?.Invoke(previous, next);
+    }
+
+    private void OnAmmoSyncChanged(int previous, int next, bool asServer)
+    {
+        AmmoChanged?.Invoke(previous, next);
+    }
+
+    private void HandleServerDeathIfNeeded()
+    {
+        if (!base.IsServerInitialized || _hp.Value > 0 || !_isAlive.Value)
         {
             return;
         }
 
-        IsAlive.Value = false;
+        _isAlive.Value = false;
         ReleaseSpawnSlot();
         StopRespawnRoutine();
         _respawnRoutine = StartCoroutine(RespawnRoutine());
@@ -178,20 +190,20 @@ public class PlayerNetwork : NetworkBehaviour
 
     private void RestoreFullStateServer()
     {
-        if (!IsServer)
+        if (!base.IsServerInitialized)
         {
             return;
         }
 
-        HP.Value = _maxHp;
-        IsAlive.Value = true;
+        _hp.Value = _maxHp;
+        _isAlive.Value = true;
         _playerShooting ??= GetComponent<PlayerShooting>();
         _playerShooting?.ResetForSpawnServer();
     }
 
     private int AcquireSpawnSlot(bool randomize)
     {
-        if (!IsServer)
+        if (!base.IsServerInitialized)
         {
             return -1;
         }
@@ -222,13 +234,13 @@ public class PlayerNetwork : NetworkBehaviour
         if (freeSlots.Count > 0)
         {
             selectedSlot = randomize
-                ? freeSlots[Random.Range(0, freeSlots.Count)]
+                ? freeSlots[UnityEngine.Random.Range(0, freeSlots.Count)]
                 : freeSlots[0];
         }
         else
         {
             selectedSlot = randomize
-                ? Random.Range(0, availableSpawnPoints)
+                ? UnityEngine.Random.Range(0, availableSpawnPoints)
                 : 0;
         }
 
@@ -272,7 +284,7 @@ public class PlayerNetwork : NetworkBehaviour
 
     private void MoveToSpawnSlotServer(int slotIndex)
     {
-        if (!IsServer)
+        if (!base.IsServerInitialized)
         {
             return;
         }
@@ -304,30 +316,12 @@ public class PlayerNetwork : NetworkBehaviour
     private void TeleportServer(Vector3 position, Quaternion rotation)
     {
         CacheComponents();
-
-        bool controllerWasEnabled = _characterController != null && _characterController.enabled;
-        if (controllerWasEnabled)
-        {
-            _characterController.enabled = false;
-        }
-
-        transform.SetPositionAndRotation(position, rotation);
-
-        if (controllerWasEnabled)
-        {
-            _characterController.enabled = true;
-        }
-
-        if (_networkTransform != null && IsSpawned)
-        {
-            _networkTransform.SetState(position, rotation, transform.localScale, teleportDisabled: false);
-        }
+        _playerMovement?.TeleportServer(position, rotation);
     }
 
     private void CacheComponents()
     {
-        _characterController ??= GetComponent<CharacterController>();
-        _networkTransform ??= GetComponent<NetworkTransform>();
+        _playerMovement ??= GetComponent<PlayerMovement>();
         _playerShooting ??= GetComponent<PlayerShooting>();
     }
 

@@ -1,5 +1,7 @@
 using System.Collections;
-using Unity.Netcode;
+using FishNet;
+using FishNet.Managing;
+using FishNet.Object;
 using UnityEngine;
 
 public class PickupManager : MonoBehaviour
@@ -22,7 +24,7 @@ public class PickupManager : MonoBehaviour
         CacheNetworkManager();
         RegisterCallbacks();
 
-        if (_networkManager != null && _networkManager.IsServer)
+        if (_networkManager != null && _networkManager.IsServerStarted)
         {
             HandleServerStarted();
         }
@@ -36,7 +38,7 @@ public class PickupManager : MonoBehaviour
 
     public void NotifyPickedUp(Vector3 position, float respawnDelay)
     {
-        if (_networkManager == null || !_networkManager.IsServer)
+        if (_networkManager == null || !_networkManager.IsServerStarted)
         {
             return;
         }
@@ -78,7 +80,7 @@ public class PickupManager : MonoBehaviour
     {
         yield return new WaitForSeconds(delay);
 
-        if (_networkManager == null || !_networkManager.IsServer)
+        if (_networkManager == null || !_networkManager.IsServerStarted)
         {
             yield break;
         }
@@ -97,8 +99,7 @@ public class PickupManager : MonoBehaviour
         HealthPickup pickup = pickupObject.GetComponent<HealthPickup>();
         pickup?.Initialize(this, position);
 
-        NetworkObject networkObject = pickupObject.GetComponent<NetworkObject>();
-        networkObject.Spawn();
+        _networkManager.ServerManager.Spawn(pickupObject);
     }
 
     private void RegisterCallbacks()
@@ -108,10 +109,8 @@ public class PickupManager : MonoBehaviour
             return;
         }
 
-        _networkManager.OnServerStarted -= HandleServerStarted;
-        _networkManager.OnServerStarted += HandleServerStarted;
-        _networkManager.OnServerStopped -= HandleServerStopped;
-        _networkManager.OnServerStopped += HandleServerStopped;
+        _networkManager.ServerManager.OnServerConnectionState -= HandleServerConnectionState;
+        _networkManager.ServerManager.OnServerConnectionState += HandleServerConnectionState;
     }
 
     private void UnregisterCallbacks()
@@ -121,14 +120,25 @@ public class PickupManager : MonoBehaviour
             return;
         }
 
-        _networkManager.OnServerStarted -= HandleServerStarted;
-        _networkManager.OnServerStopped -= HandleServerStopped;
+        _networkManager.ServerManager.OnServerConnectionState -= HandleServerConnectionState;
     }
 
     private void CacheNetworkManager()
     {
-        _networkManager = NetworkManager.Singleton != null
-            ? NetworkManager.Singleton
+        _networkManager = InstanceFinder.NetworkManager != null
+            ? InstanceFinder.NetworkManager
             : FindFirstObjectByType<NetworkManager>();
+    }
+
+    private void HandleServerConnectionState(FishNet.Transporting.ServerConnectionStateArgs args)
+    {
+        if (args.ConnectionState == FishNet.Transporting.LocalConnectionState.Started)
+        {
+            HandleServerStarted();
+        }
+        else if (args.ConnectionState == FishNet.Transporting.LocalConnectionState.Stopped)
+        {
+            HandleServerStopped(false);
+        }
     }
 }

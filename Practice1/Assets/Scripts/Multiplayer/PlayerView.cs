@@ -1,6 +1,5 @@
+using FishNet.Object;
 using TMPro;
-using Unity.Collections;
-using Unity.Netcode;
 using UnityEngine;
 
 public class PlayerView : NetworkBehaviour
@@ -45,8 +44,9 @@ public class PlayerView : NetworkBehaviour
         }
     }
 
-    public override void OnNetworkSpawn()
+    public override void OnStartNetwork()
     {
+        base.OnStartNetwork();
         if (_playerNetwork == null)
         {
             _playerNetwork = GetComponent<PlayerNetwork>();
@@ -57,38 +57,38 @@ public class PlayerView : NetworkBehaviour
             return;
         }
 
-        _showNameplate = !IsOwner;
+        _showNameplate = !base.Owner.IsLocalClient;
         if (_nameplateCanvas != null && !_showNameplate)
         {
             _nameplateCanvas.gameObject.SetActive(false);
         }
 
-        _playerNetwork.Nickname.OnValueChanged += OnNicknameChanged;
-        _playerNetwork.HP.OnValueChanged += OnHpChanged;
-        _playerNetwork.IsAlive.OnValueChanged += OnAliveChanged;
+        _playerNetwork.NicknameChanged += OnNicknameChanged;
+        _playerNetwork.HpChanged += OnHpChanged;
+        _playerNetwork.AliveChanged += OnAliveChanged;
 
-        OnNicknameChanged(default, _playerNetwork.Nickname.Value);
-        OnHpChanged(0, _playerNetwork.HP.Value);
-        OnAliveChanged(true, _playerNetwork.IsAlive.Value);
+        OnNicknameChanged(_playerNetwork.Nickname, _playerNetwork.Nickname);
+        OnHpChanged(_playerNetwork.HP, _playerNetwork.HP);
+        OnAliveChanged(_playerNetwork.IsAlive, _playerNetwork.IsAlive);
     }
 
-    public override void OnNetworkDespawn()
+    public override void OnStopNetwork()
     {
-        if (_playerNetwork == null)
+        if (_playerNetwork != null)
         {
-            return;
+            _playerNetwork.NicknameChanged -= OnNicknameChanged;
+            _playerNetwork.HpChanged -= OnHpChanged;
+            _playerNetwork.AliveChanged -= OnAliveChanged;
         }
 
-        _playerNetwork.Nickname.OnValueChanged -= OnNicknameChanged;
-        _playerNetwork.HP.OnValueChanged -= OnHpChanged;
-        _playerNetwork.IsAlive.OnValueChanged -= OnAliveChanged;
+        base.OnStopNetwork();
     }
 
-    private void OnNicknameChanged(FixedString32Bytes _, FixedString32Bytes newValue)
+    private void OnNicknameChanged(string _, string newValue)
     {
         if (_nicknameText != null)
         {
-            _nicknameText.text = newValue.ToString();
+            _nicknameText.text = newValue;
         }
     }
 
