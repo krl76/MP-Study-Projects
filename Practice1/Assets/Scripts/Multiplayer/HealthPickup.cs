@@ -29,8 +29,9 @@ public class HealthPickup : NetworkBehaviour
         UpdateRootRendererVisibility();
     }
 
-    private void OnValidate()
+    protected override void OnValidate()
     {
+        base.OnValidate();
         _sphereCollider = GetComponent<SphereCollider>();
         _rootRenderer = GetComponent<MeshRenderer>();
         ApplyColliderSettings();

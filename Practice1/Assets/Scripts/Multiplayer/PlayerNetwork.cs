@@ -55,7 +55,7 @@ public class PlayerNetwork : NetworkBehaviour
 
         if (base.IsServerInitialized)
         {
-            _nickname.Value = GetFallbackNicknameValue();
+            _nickname.Value = SanitizeNickname(base.Owner.IsLocalClient ? ConnectionUI.PlayerNickname : string.Empty);
             RestoreFullStateServer();
             _assignedSpawnSlot = AcquireSpawnSlot(randomize: false);
             MoveToSpawnSlotServer(_assignedSpawnSlot);

@@ -4,6 +4,8 @@ using UnityEngine;
 
 public class PlayerView : NetworkBehaviour
 {
+    private const string GraphicsChildName = "Graphics";
+
     [SerializeField] private PlayerNetwork _playerNetwork;
     [SerializeField] private TMP_Text _nicknameText;
     [SerializeField] private TMP_Text _hpText;
@@ -20,7 +22,7 @@ public class PlayerView : NetworkBehaviour
             _playerNetwork = GetComponent<PlayerNetwork>();
         }
 
-        _bodyRenderer ??= GetComponent<MeshRenderer>();
+        _bodyRenderer ??= ResolveBodyRenderer();
         _nameplateCanvas ??= GetComponentInChildren<Canvas>();
     }
 
@@ -51,6 +53,8 @@ public class PlayerView : NetworkBehaviour
         {
             _playerNetwork = GetComponent<PlayerNetwork>();
         }
+
+        _bodyRenderer = ResolveBodyRenderer();
 
         if (_playerNetwork == null)
         {
@@ -90,6 +94,16 @@ public class PlayerView : NetworkBehaviour
         {
             _nicknameText.text = newValue;
         }
+    }
+
+    private MeshRenderer ResolveBodyRenderer()
+    {
+        Transform graphicsTransform = transform.Find(GraphicsChildName);
+        MeshRenderer graphicsRenderer = graphicsTransform != null
+            ? graphicsTransform.GetComponent<MeshRenderer>()
+            : null;
+
+        return graphicsRenderer != null ? graphicsRenderer : GetComponent<MeshRenderer>();
     }
 
     private void OnHpChanged(int _, int newValue)

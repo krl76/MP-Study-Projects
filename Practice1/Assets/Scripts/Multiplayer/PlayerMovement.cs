@@ -1,5 +1,6 @@
 using FishNet.Object;
 using FishNet.Object.Prediction;
+using FishNet.Connection;
 using FishNet.Transporting;
 using UnityEngine;
 using UnityEngine.InputSystem;
@@ -53,17 +54,24 @@ public struct ReconcileData : IReconcileData
 [RequireComponent(typeof(CharacterController))]
 public class PlayerMovement : NetworkBehaviour
 {
+    private const string GraphicsChildName = "Graphics";
+
     [SerializeField] private float _speed = 5f;
     [SerializeField] private float _gravity = -18f;
+    [SerializeField] private bool _usePrediction = true;
+    [SerializeField] private Key _togglePredictionKey = Key.F2;
 
     private CharacterController _characterController;
     private PlayerNetwork _playerNetwork;
     private float _verticalVelocity;
 
+    public bool UsePrediction => _usePrediction;
+
     private void Awake()
     {
         _playerNetwork = GetComponent<PlayerNetwork>();
         _characterController = GetComponent<CharacterController>();
+        EnsurePredictionGraphicsObject();
         if (_characterController == null)
         {
             Debug.LogError("PlayerMovement requires CharacterController on the player prefab.");
@@ -83,15 +91,57 @@ public class PlayerMovement : NetworkBehaviour
         }
     }
 
+    private void EnsurePredictionGraphicsObject()
+    {
+        if (base.NetworkObject == null || base.NetworkObject.GetGraphicalObject() != null)
+        {
+            return;
+        }
+
+        MeshFilter rootMeshFilter = GetComponent<MeshFilter>();
+        MeshRenderer rootMeshRenderer = GetComponent<MeshRenderer>();
+        if (rootMeshFilter == null || rootMeshRenderer == null)
+        {
+            return;
+        }
+
+        Transform graphicsTransform = transform.Find(GraphicsChildName);
+        if (graphicsTransform == null)
+        {
+            GameObject graphicsObject = new GameObject(GraphicsChildName);
+            graphicsTransform = graphicsObject.transform;
+            graphicsTransform.SetParent(transform, false);
+        }
+
+        MeshFilter graphicsMeshFilter = graphicsTransform.GetComponent<MeshFilter>();
+        if (graphicsMeshFilter == null)
+        {
+            graphicsMeshFilter = graphicsTransform.gameObject.AddComponent<MeshFilter>();
+        }
+
+        MeshRenderer graphicsMeshRenderer = graphicsTransform.GetComponent<MeshRenderer>();
+        if (graphicsMeshRenderer == null)
+        {
+            graphicsMeshRenderer = graphicsTransform.gameObject.AddComponent<MeshRenderer>();
+        }
+
+        graphicsMeshFilter.sharedMesh = rootMeshFilter.sharedMesh;
+        graphicsMeshRenderer.sharedMaterials = rootMeshRenderer.sharedMaterials;
+        rootMeshRenderer.enabled = false;
+        base.NetworkObject.SetGraphicalObject(graphicsTransform);
+    }
+
     public override void OnStartNetwork()
     {
         base.OnStartNetwork();
         base.TimeManager.OnTick += OnTick;
+        base.TimeManager.OnPostTick += OnPostTick;
     }
 
     public override void OnStopNetwork()
     {
         base.TimeManager.OnTick -= OnTick;
+        base.TimeManager.OnPostTick -= OnPostTick;
         base.OnStopNetwork();
     }
 
@@ -121,17 +171,46 @@ public class PlayerMovement : NetworkBehaviour
 
     private void OnTick()
     {
-        if (base.IsOwner)
+        if (_usePrediction)
         {
-            Vector2 moveInput = ReadMoveInput();
-            Replicate(new MoveData(moveInput.x, moveInput.y));
+            if (base.IsOwner)
+            {
+                TryTogglePredictionMode();
+                Vector2 moveInput = ReadMoveInput();
+                Replicate(new MoveData(moveInput.x, moveInput.y));
+            }
+
+            if (base.IsServerInitialized && !base.IsOwner)
+            {
+                Replicate(default);
+            }
+
+            return;
         }
 
-        CreateReconcile();
+        if (base.IsOwner)
+        {
+            TryTogglePredictionMode();
+            Vector2 moveInput = ReadMoveInput();
+            MoveWithoutPredictionServerRpc(moveInput.x, moveInput.y);
+        }
+    }
+
+    private void OnPostTick()
+    {
+        if (base.IsServerInitialized && _usePrediction)
+        {
+            CreateReconcile();
+        }
     }
 
     public override void CreateReconcile()
     {
+        if (!base.IsServerInitialized || !_usePrediction)
+        {
+            return;
+        }
+
         Reconcile(new ReconcileData(transform.position, transform.rotation, _verticalVelocity));
     }
 
@@ -148,6 +227,35 @@ public class PlayerMovement : NetworkBehaviour
             return;
         }
 
+        ApplyMove(moveData, (float)base.TimeManager.TickDelta);
+    }
+
+    [ServerRpc]
+    private void MoveWithoutPredictionServerRpc(float horizontal, float vertical)
+    {
+        if (_playerNetwork == null || !_playerNetwork.IsAlive || _characterController == null)
+        {
+            return;
+        }
+
+        MoveData moveData = new MoveData(horizontal, vertical);
+        ApplyMove(moveData, (float)base.TimeManager.TickDelta);
+        ApplyAuthoritativeStateTargetRpc(base.Owner, transform.position, transform.rotation, _verticalVelocity);
+    }
+
+    [TargetRpc]
+    private void ApplyAuthoritativeStateTargetRpc(NetworkConnection connection, Vector3 position, Quaternion rotation, float verticalVelocity, Channel channel = Channel.Reliable)
+    {
+        if (_usePrediction)
+        {
+            return;
+        }
+
+        ApplyAuthoritativeState(position, rotation, verticalVelocity);
+    }
+
+    private void ApplyMove(MoveData moveData, float delta)
+    {
         Vector3 planarMove = new Vector3(moveData.Horizontal, 0f, moveData.Vertical);
         if (planarMove.sqrMagnitude > 1f)
         {
@@ -164,19 +272,28 @@ public class PlayerMovement : NetworkBehaviour
             _verticalVelocity = -1f;
         }
 
-        float tickDelta = (float)base.TimeManager.TickDelta;
-        _verticalVelocity += _gravity * tickDelta;
+        _verticalVelocity += _gravity * delta;
         Vector3 velocity = (planarMove * _speed) + (Vector3.up * _verticalVelocity);
-        _characterController.Move(velocity * tickDelta);
+        _characterController.Move(velocity * delta);
     }
 
     [Reconcile]
     private void Reconcile(ReconcileData reconcileData, Channel channel = Channel.Unreliable)
     {
+        if (!_usePrediction)
+        {
+            return;
+        }
+
+        ApplyAuthoritativeState(reconcileData.Position, reconcileData.Rotation, reconcileData.VerticalVelocity);
+    }
+
+    private void ApplyAuthoritativeState(Vector3 position, Quaternion rotation, float verticalVelocity)
+    {
         if (_characterController == null)
         {
-            transform.SetPositionAndRotation(reconcileData.Position, reconcileData.Rotation);
-            _verticalVelocity = reconcileData.VerticalVelocity;
+            transform.SetPositionAndRotation(position, rotation);
+            _verticalVelocity = verticalVelocity;
             return;
         }
 
@@ -186,13 +303,32 @@ public class PlayerMovement : NetworkBehaviour
             _characterController.enabled = false;
         }
 
-        transform.SetPositionAndRotation(reconcileData.Position, reconcileData.Rotation);
-        _verticalVelocity = reconcileData.VerticalVelocity;
+        transform.SetPositionAndRotation(position, rotation);
+        _verticalVelocity = verticalVelocity;
 
         if (controllerWasEnabled)
         {
             _characterController.enabled = true;
         }
+    }
+
+    private void TryTogglePredictionMode()
+    {
+        Keyboard keyboard = Keyboard.current;
+        if (keyboard == null || !keyboard[_togglePredictionKey].wasPressedThisFrame)
+        {
+            return;
+        }
+
+        _usePrediction = !_usePrediction;
+        SetPredictionModeServerRpc(_usePrediction);
+        Debug.Log($"Client-side prediction {(_usePrediction ? "enabled" : "disabled")} for {name}.");
+    }
+
+    [ServerRpc]
+    private void SetPredictionModeServerRpc(bool usePrediction)
+    {
+        _usePrediction = usePrediction;
     }
 
     private Vector2 ReadMoveInput()

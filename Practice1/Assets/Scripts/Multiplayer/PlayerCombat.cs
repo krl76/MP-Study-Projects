@@ -56,13 +56,15 @@ public class PlayerCombat : NetworkBehaviour
         return bestTarget;
     }
 
-    private void Reset()
+    protected override void Reset()
     {
+        base.Reset();
         _playerNetwork = GetComponent<PlayerNetwork>();
     }
 
-    private void OnValidate()
+    protected override void OnValidate()
     {
+        base.OnValidate();
         if (_playerNetwork == null)
         {
             _playerNetwork = GetComponent<PlayerNetwork>();

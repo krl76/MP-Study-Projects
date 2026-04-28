@@ -48,14 +48,7 @@ public class PlayerShooting : NetworkBehaviour
             return;
         }
 
-        Vector3 shotDirection = transform.forward;
-        shotDirection.y = 0f;
-        if (shotDirection.sqrMagnitude <= 0.001f)
-        {
-            shotDirection = Vector3.forward;
-        }
-
-        ShootServerRpc(_firePoint.position, shotDirection.normalized);
+        ShootServerRpc();
     }
 
     public void ResetForSpawnServer()
@@ -70,7 +63,7 @@ public class PlayerShooting : NetworkBehaviour
     }
 
     [ServerRpc]
-    private void ShootServerRpc(Vector3 position, Vector3 direction, NetworkConnection sender = null)
+    private void ShootServerRpc(NetworkConnection sender = null)
     {
         _playerNetwork ??= GetComponent<PlayerNetwork>();
         if (_playerNetwork == null || _projectilePrefab == null)
@@ -93,10 +86,12 @@ public class PlayerShooting : NetworkBehaviour
             return;
         }
 
-        Vector3 shotDirection = new Vector3(direction.x, 0f, direction.z);
+        EnsureFirePoint();
+        Vector3 shotDirection = transform.forward;
+        shotDirection.y = 0f;
         if (shotDirection.sqrMagnitude <= 0.001f)
         {
-            shotDirection = transform.forward;
+            shotDirection = Vector3.forward;
         }
 
         shotDirection.Normalize();
@@ -105,7 +100,7 @@ public class PlayerShooting : NetworkBehaviour
 
         GameObject projectileObject = Instantiate(
             _projectilePrefab,
-            position + (shotDirection * 1.1f),
+            _firePoint.position + (shotDirection * 1.1f),
             Quaternion.LookRotation(shotDirection, Vector3.up)
         );
 
