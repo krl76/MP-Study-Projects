@@ -25,8 +25,13 @@ public class PlayerCombat : NetworkBehaviour
             return;
         }
 
+        if (GameManager.Instance == null || GameManager.Instance.CurrentState != GameState.InProgress)
+        {
+            return;
+        }
+
         PlayerNetwork target = FindNearestValidTarget();
-        target?.ApplyDamage(_damage);
+        target?.ApplyDamage(_damage, _playerNetwork);
     }
 
     private PlayerNetwork FindNearestValidTarget()

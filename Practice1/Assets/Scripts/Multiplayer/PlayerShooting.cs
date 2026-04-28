@@ -76,6 +76,11 @@ public class PlayerShooting : NetworkBehaviour
             return;
         }
 
+        if (GameManager.Instance == null || GameManager.Instance.CurrentState != GameState.InProgress)
+        {
+            return;
+        }
+
         if (_playerNetwork.Ammo <= 0)
         {
             return;
@@ -106,6 +111,7 @@ public class PlayerShooting : NetworkBehaviour
 
         Projectile projectile = projectileObject.GetComponent<Projectile>();
         projectile?.SetInitialDirection(shotDirection);
+        projectile?.SetOwnerPlayer(_playerNetwork);
 
         base.ServerManager.Spawn(projectileObject, sender);
     }

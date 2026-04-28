@@ -19,6 +19,7 @@ public class PlayerNetwork : NetworkBehaviour
     private readonly SyncVar<int> _hp = new SyncVar<int>(100);
     private readonly SyncVar<bool> _isAlive = new SyncVar<bool>(true);
     private readonly SyncVar<int> _ammo = new SyncVar<int>();
+    private readonly SyncVar<int> _score = new SyncVar<int>();
 
     private int _assignedSpawnSlot = -1;
     private Coroutine _respawnRoutine;
@@ -32,11 +33,13 @@ public class PlayerNetwork : NetworkBehaviour
     public int HP => _hp.Value;
     public bool IsAlive => _isAlive.Value;
     public int Ammo => _ammo.Value;
+    public int Score => _score.Value;
 
     public event Action<string, string> NicknameChanged;
     public event Action<int, int> HpChanged;
     public event Action<bool, bool> AliveChanged;
     public event Action<int, int> AmmoChanged;
+    public event Action<int, int> ScoreChanged;
 
     public override void OnStartNetwork()
     {
@@ -47,11 +50,13 @@ public class PlayerNetwork : NetworkBehaviour
         _hp.OnChange += OnHpSyncChanged;
         _isAlive.OnChange += OnAliveSyncChanged;
         _ammo.OnChange += OnAmmoSyncChanged;
+        _score.OnChange += OnScoreSyncChanged;
 
         NicknameChanged?.Invoke(_nickname.Value, _nickname.Value);
         HpChanged?.Invoke(_hp.Value, _hp.Value);
         AliveChanged?.Invoke(_isAlive.Value, _isAlive.Value);
         AmmoChanged?.Invoke(_ammo.Value, _ammo.Value);
+        ScoreChanged?.Invoke(_score.Value, _score.Value);
 
         if (base.IsServerInitialized)
         {
@@ -73,6 +78,7 @@ public class PlayerNetwork : NetworkBehaviour
         _hp.OnChange -= OnHpSyncChanged;
         _isAlive.OnChange -= OnAliveSyncChanged;
         _ammo.OnChange -= OnAmmoSyncChanged;
+        _score.OnChange -= OnScoreSyncChanged;
         s_SpawnedPlayers.Remove(this);
         StopRespawnRoutine();
         ReleaseSpawnSlot();
@@ -87,13 +93,18 @@ public class PlayerNetwork : NetworkBehaviour
 
     public bool ApplyDamage(int damage)
     {
+        return ApplyDamage(damage, null);
+    }
+
+    public bool ApplyDamage(int damage, PlayerNetwork attacker)
+    {
         if (!base.IsServerInitialized || !base.IsSpawned || !_isAlive.Value)
         {
             return false;
         }
 
         _hp.Value = Mathf.Max(0, _hp.Value - Mathf.Max(1, damage));
-        HandleServerDeathIfNeeded();
+        HandleServerDeathIfNeeded(attacker);
         return true;
     }
 
@@ -116,6 +127,34 @@ public class PlayerNetwork : NetworkBehaviour
         }
 
         _ammo.Value = Mathf.Max(0, ammo);
+    }
+
+    public void AddScoreServer(int amount)
+    {
+        if (!base.IsServerInitialized)
+        {
+            return;
+        }
+
+        _score.Value = Mathf.Max(0, _score.Value + Mathf.Max(1, amount));
+    }
+
+    public void ResetForMatchServer()
+    {
+        if (!base.IsServerInitialized)
+        {
+            return;
+        }
+
+        StopRespawnRoutine();
+        _score.Value = 0;
+        RestoreFullStateServer();
+        if (_assignedSpawnSlot < 0)
+        {
+            _assignedSpawnSlot = AcquireSpawnSlot(randomize: true);
+        }
+
+        MoveToSpawnSlotServer(_assignedSpawnSlot);
     }
 
     [ServerRpc]
@@ -148,11 +187,6 @@ public class PlayerNetwork : NetworkBehaviour
     private void OnHpSyncChanged(int previous, int next, bool asServer)
     {
         HpChanged?.Invoke(previous, next);
-
-        if (asServer)
-        {
-            HandleServerDeathIfNeeded();
-        }
     }
 
     private void OnAliveSyncChanged(bool previous, bool next, bool asServer)
@@ -165,11 +199,21 @@ public class PlayerNetwork : NetworkBehaviour
         AmmoChanged?.Invoke(previous, next);
     }
 
-    private void HandleServerDeathIfNeeded()
+    private void OnScoreSyncChanged(int previous, int next, bool asServer)
+    {
+        ScoreChanged?.Invoke(previous, next);
+    }
+
+    private void HandleServerDeathIfNeeded(PlayerNetwork attacker)
     {
         if (!base.IsServerInitialized || _hp.Value > 0 || !_isAlive.Value)
         {
             return;
+        }
+
+        if (attacker != null && attacker != this)
+        {
+            attacker.AddScoreServer(1);
         }
 
         _isAlive.Value = false;
@@ -181,6 +225,12 @@ public class PlayerNetwork : NetworkBehaviour
     private IEnumerator RespawnRoutine()
     {
         yield return new WaitForSeconds(_respawnDelay);
+
+        if (GameManager.Instance == null || GameManager.Instance.CurrentState != GameState.InProgress)
+        {
+            _respawnRoutine = null;
+            yield break;
+        }
 
         _assignedSpawnSlot = AcquireSpawnSlot(randomize: true);
         MoveToSpawnSlotServer(_assignedSpawnSlot);

@@ -13,6 +13,7 @@ public class Projectile : NetworkBehaviour
     private Rigidbody _rigidbody;
     private Vector3 _initialDirection = Vector3.forward;
     private float _despawnAt;
+    private PlayerNetwork _ownerPlayer;
 
     private void Awake()
     {
@@ -68,7 +69,7 @@ public class Projectile : NetworkBehaviour
                 return;
             }
 
-            if (target.ApplyDamage(_damage))
+            if (target.ApplyDamage(_damage, _ownerPlayer))
             {
                 DespawnSelf();
             }
@@ -90,6 +91,11 @@ public class Projectile : NetworkBehaviour
         {
             _initialDirection = direction.normalized;
         }
+    }
+
+    public void SetOwnerPlayer(PlayerNetwork ownerPlayer)
+    {
+        _ownerPlayer = ownerPlayer;
     }
 
     private void DespawnSelf()
